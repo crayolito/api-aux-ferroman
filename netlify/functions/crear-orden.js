@@ -82,7 +82,7 @@ exports.handler = async (event, context) => {
                     email: `cliente.${Date.now()}@checkout-personalizado.com`
                 },
                 note: `Pedido desde checkout personalizado - ${new Date().toLocaleString('es-ES')}`,
-                tags: ["checkout-personalizado", "whatsapp"],
+                tags: "checkout-personalizado,whatsapp",
                 financial_status: "pending"
             }
         };
