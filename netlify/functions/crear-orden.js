@@ -25,6 +25,15 @@ exports.handler = async (event, context) => {
 
         const datos = JSON.parse(event.body);
 
+        // Validar que tenga query GraphQL
+        if (!datos.query) {
+            return {
+                statusCode: 400,
+                headers,
+                body: JSON.stringify({ success: false, error: 'Falta el query GraphQL' })
+            };
+        }
+
         // 1. Obtener token
         const tokenResponse = await fetch(`https://${shop}/admin/oauth/access_token`, {
             method: 'POST',
@@ -42,135 +51,40 @@ exports.handler = async (event, context) => {
         const tokenData = await tokenResponse.json();
         const access_token = tokenData.access_token;
 
-        // 2. Preparar productos
-        const productos = datos.productos || datos.items || [];
-        const lineItems = productos.map(p => ({
-            title: p.title || 'Producto',
-            quantity: parseInt(p.quantity) || 1,
-            originalUnitPrice: parseFloat((p.price || '0').toString().replace(/[^\d.-]/g, '')) || 0
-        }));
-
-        // 3. Crear Draft Order
-        const createMutation = `
-        mutation draftOrderCreate($input: DraftOrderInput!) {
-          draftOrderCreate(input: $input) {
-            draftOrder {
-              id
-              name
-              totalPrice
-            }
-            userErrors {
-              field
-              message
-            }
-          }
-        }
-      `;
-
-        const createVariables = {
-            input: {
-                lineItems: lineItems,
-                email: datos.cliente?.email || '',
-                note: `Orden desde ${datos.tienda || 'web'} - Total: ${datos.total || 'N/A'}`
-            }
-        };
-
-        const createResponse = await fetch(`https://${shop}/admin/api/2026-01/graphql.json`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-Shopify-Access-Token': access_token
-            },
-            body: JSON.stringify({ query: createMutation, variables: createVariables })
-        });
-
-        const createResult = await createResponse.json();
-
-        if (createResult.errors || createResult.data.draftOrderCreate.userErrors.length > 0) {
-            throw new Error('Error creando draft order');
-        }
-
-        const draftOrderId = createResult.data.draftOrderCreate.draftOrder.id;
-
-        // 4. COMPLETAR el Draft Order CON PAYMENT PENDING
-        const completeMutation = `
-        mutation draftOrderComplete($id: ID!, $paymentPending: Boolean) {
-          draftOrderComplete(id: $id, paymentPending: $paymentPending) {
-            draftOrder {
-              order {
-                id
-                name
-                totalPrice
-                displayFinancialStatus
-              }
-            }
-            userErrors {
-              field
-              message
-            }
-          }
-        }
-      `;
-
-        const completeResponse = await fetch(`https://${shop}/admin/api/2026-01/graphql.json`, {
+        // 2. Ejecutar el GraphQL que le envíes
+        const response = await fetch(`https://${shop}/admin/api/2026-01/graphql.json`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
                 'X-Shopify-Access-Token': access_token
             },
             body: JSON.stringify({
-                query: completeMutation,
-                variables: {
-                    id: draftOrderId,
-                    paymentPending: true  // ← ESTO hace que sea "Payment pending"
-                }
+                query: datos.query,
+                variables: datos.variables || {}
             })
         });
 
-        const completeResult = await completeResponse.json();
-        console.log('Complete result:', completeResult);
+        const result = await response.json();
 
-        if (completeResult.errors || completeResult.data.draftOrderComplete.userErrors.length > 0) {
-            // Si no se puede completar, devolver el draft order
-            return {
-                statusCode: 200,
-                headers,
-                body: JSON.stringify({
-                    success: true,
-                    numeroOrden: createResult.data.draftOrderCreate.draftOrder.name,
-                    orderId: draftOrderId,
-                    total: createResult.data.draftOrderCreate.draftOrder.totalPrice,
-                    estado: 'draft'
-                })
-            };
-        }
-
-        // Orden real creada con Payment Pending
-        const order = completeResult.data.draftOrderComplete.draftOrder.order;
-
+        // 3. Devolver la respuesta tal como viene de Shopify
         return {
             statusCode: 200,
             headers,
             body: JSON.stringify({
-                success: true,
-                numeroOrden: order.name,
-                orderId: order.id,
-                total: order.totalPrice,
-                estado: 'payment_pending', // Payment pending
-                estadoFinanciero: order.displayFinancialStatus
+                success: !result.errors,
+                data: result.data,
+                errors: result.errors || null
             })
         };
 
     } catch (error) {
-        console.error('Error completo:', error);
-
+        console.error('Error:', error);
         return {
-            statusCode: 200,
+            statusCode: 500,
             headers,
             body: JSON.stringify({
                 success: false,
-                error: error.message,
-                numeroOrden: `LM-${Date.now().toString().slice(-8)}`
+                error: error.message
             })
         };
     }
