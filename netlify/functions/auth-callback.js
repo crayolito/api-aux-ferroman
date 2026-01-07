@@ -1,6 +1,5 @@
-// netlify/functions/auth/callback.js
 const crypto = require('crypto');
-const config = require('../config');
+const config = require('./config');
 
 exports.handler = async (event) => {
     const { code, shop, hmac, state, timestamp } = event.queryStringParameters;

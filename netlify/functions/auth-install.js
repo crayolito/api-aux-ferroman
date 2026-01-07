@@ -1,6 +1,6 @@
-// netlify/functions/auth/install.js
+// netlify/functions/auth-install.js
 const crypto = require('crypto');
-const config = require('../config');
+const config = require('./config');
 
 exports.handler = async (event) => {
     const { shop, hmac, timestamp } = event.queryStringParameters || {};
@@ -28,7 +28,7 @@ exports.handler = async (event) => {
 
     // Construir URL de autorización
     const scopes = 'write_orders,read_orders';
-    const redirectUri = `${process.env.URL || 'https://api-aux-ferroman.netlify.app'}/.netlify/functions/auth/callback`;
+    const redirectUri = `${process.env.URL || 'https://api-aux-ferroman.netlify.app'}/.netlify/functions/auth-callback`;
 
     const authUrl = `https://${shop}/admin/oauth/authorize?` +
         `client_id=${config.shopify.clientId}&` +
@@ -51,19 +51,16 @@ function verificarHMAC(params) {
     const { hmac, ...rest } = params;
     if (!hmac) return false;
 
-    // Ordenar parámetros alfabéticamente
     const sorted = Object.keys(rest)
         .sort()
         .map(key => `${key}=${rest[key]}`)
         .join('&');
 
-    // Calcular HMAC
     const calculated = crypto
         .createHmac('sha256', config.shopify.secret)
         .update(sorted)
         .digest('hex');
 
-    // Comparación segura
     return crypto.timingSafeEqual(
         Buffer.from(calculated),
         Buffer.from(hmac)
