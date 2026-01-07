@@ -1,0 +1,13 @@
+{
+    "name": "shopify-orders",
+    "version": "1.0.0",
+    "description": "Netlify Functions para Shopify",
+    "type": "module",
+    "scripts": {
+      "build": "echo 'No build needed'"
+    },
+    "dependencies": {},
+    "engines": {
+      "node": ">=18"
+    }
+  }
