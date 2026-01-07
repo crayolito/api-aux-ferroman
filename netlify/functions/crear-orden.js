@@ -14,11 +14,6 @@ exports.handler = async (event, context) => {
     }
 
     try {
-        // Verificar que el token esté configurado
-        if (!config.shopify.accessToken || config.shopify.accessToken === 'TU_TOKEN_DE_ACCESO_AQUI') {
-            throw new Error('Token de acceso de Shopify no configurado. Actualiza config.js con el token real.');
-        }
-
         // Obtener datos del pedido
         const { productos, total, tienda } = JSON.parse(event.body);
 
@@ -43,20 +38,24 @@ exports.handler = async (event, context) => {
             }
         };
 
-        // Crear orden en Shopify usando configuración
+        // Usar Client ID y Secret para autenticación básica
         const shopifyUrl = `https://${config.shopify.shop}/admin/api/${config.shopify.apiVersion}/draft_orders.json`;
+
+        // Autenticación usando Client ID y Secret (Basic Auth)
+        const authString = Buffer.from(`${config.shopify.clientId}:${config.shopify.secret}`).toString('base64');
 
         const response = await fetch(shopifyUrl, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'X-Shopify-Access-Token': config.shopify.accessToken
+                'Authorization': `Basic ${authString}`
             },
             body: JSON.stringify(ordenBorrador)
         });
 
         if (!response.ok) {
             const errorData = await response.text();
+            console.error('Error de Shopify API:', response.status, errorData);
             throw new Error(`Shopify API Error: ${response.status} - ${errorData}`);
         }
 
@@ -75,7 +74,7 @@ exports.handler = async (event, context) => {
         };
 
     } catch (error) {
-        console.error('Error:', error);
+        console.error('Error completo:', error);
 
         return {
             statusCode: 500,
