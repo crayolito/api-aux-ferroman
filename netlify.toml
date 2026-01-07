@@ -1,6 +1,3 @@
-Netlify · TOML
-Copiar
-
 [build]
   functions = "netlify/functions"
 
