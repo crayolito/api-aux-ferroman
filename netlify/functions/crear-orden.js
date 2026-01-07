@@ -92,15 +92,16 @@ exports.handler = async (event, context) => {
 
         const draftOrderId = createResult.data.draftOrderCreate.draftOrder.id;
 
-        // 4. COMPLETAR el Draft Order para convertirlo en Order real
+        // 4. COMPLETAR el Draft Order CON PAYMENT PENDING
         const completeMutation = `
-        mutation draftOrderComplete($id: ID!) {
-          draftOrderComplete(id: $id) {
+        mutation draftOrderComplete($id: ID!, $paymentPending: Boolean) {
+          draftOrderComplete(id: $id, paymentPending: $paymentPending) {
             draftOrder {
               order {
                 id
                 name
                 totalPrice
+                displayFinancialStatus
               }
             }
             userErrors {
@@ -119,7 +120,10 @@ exports.handler = async (event, context) => {
             },
             body: JSON.stringify({
                 query: completeMutation,
-                variables: { id: draftOrderId }
+                variables: {
+                    id: draftOrderId,
+                    paymentPending: true  // ← ESTO hace que sea "Payment pending"
+                }
             })
         });
 
@@ -136,12 +140,12 @@ exports.handler = async (event, context) => {
                     numeroOrden: createResult.data.draftOrderCreate.draftOrder.name,
                     orderId: draftOrderId,
                     total: createResult.data.draftOrderCreate.draftOrder.totalPrice,
-                    tipo: 'draft' // Indicar que quedó como draft
+                    estado: 'draft'
                 })
             };
         }
 
-        // Orden real creada exitosamente
+        // Orden real creada con Payment Pending
         const order = completeResult.data.draftOrderComplete.draftOrder.order;
 
         return {
@@ -152,7 +156,8 @@ exports.handler = async (event, context) => {
                 numeroOrden: order.name,
                 orderId: order.id,
                 total: order.totalPrice,
-                tipo: 'order' // Orden real
+                estado: 'payment_pending', // Payment pending
+                estadoFinanciero: order.displayFinancialStatus
             })
         };
 
