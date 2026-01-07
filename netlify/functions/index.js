@@ -8,15 +8,21 @@ exports.handler = async (event) => {
 
     // Si hay parámetros de Shopify (instalación), manejar directamente
     if (shop) {
-        // Si hay HMAC y tiene valor, verificar (viene de Shopify)
+        // Verificar HMAC SOLO si está presente (no siempre viene en la primera solicitud)
         if (hmac && hmac.trim() !== '') {
             if (!verificarHMAC(queryParams)) {
+                // Agregar logging para debug
+                console.error('HMAC inválido. Parámetros recibidos:', JSON.stringify(queryParams));
                 return {
                     statusCode: 403,
-                    body: JSON.stringify({ error: 'HMAC inválido' })
+                    body: JSON.stringify({
+                        error: 'HMAC inválido',
+                        debug: 'Verifica que el secret en config.js sea correcto'
+                    })
                 };
             }
         }
+        // Si no hay HMAC, continuar de todas formas (instalación inicial desde App Store)
 
         // Validar que shop termine en .myshopify.com
         if (!shop || !shop.endsWith('.myshopify.com')) {
@@ -101,11 +107,12 @@ function verificarHMAC(params) {
         return false;
     }
 
-    // Filtrar parámetros vacíos o undefined
+    // Filtrar parámetros vacíos o undefined, pero mantener los valores tal como vienen
     const filteredParams = Object.keys(rest)
         .filter(key => rest[key] !== undefined && rest[key] !== null && rest[key] !== '')
         .reduce((obj, key) => {
-            obj[key] = rest[key];
+            // Mantener el valor original sin decodificar (Shopify ya viene codificado)
+            obj[key] = String(rest[key]);
             return obj;
         }, {});
 
@@ -123,12 +130,24 @@ function verificarHMAC(params) {
 
     // Comparación segura
     try {
-        return crypto.timingSafeEqual(
-            Buffer.from(calculated, 'hex'),
-            Buffer.from(hmac, 'hex')
-        );
+        // Asegurar que ambos sean del mismo tamaño antes de comparar
+        const calculatedBuffer = Buffer.from(calculated, 'hex');
+        const receivedBuffer = Buffer.from(hmac, 'hex');
+
+        if (calculatedBuffer.length !== receivedBuffer.length) {
+            console.error('HMAC: Longitudes diferentes', {
+                calculated: calculatedBuffer.length,
+                received: receivedBuffer.length
+            });
+            return false;
+        }
+
+        return crypto.timingSafeEqual(calculatedBuffer, receivedBuffer);
     } catch (error) {
         console.error('Error comparando HMAC:', error);
+        console.error('HMAC calculado:', calculated);
+        console.error('HMAC recibido:', hmac);
+        console.error('Parámetros ordenados:', sorted);
         return false;
     }
 }
