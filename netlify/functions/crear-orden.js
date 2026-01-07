@@ -1,3 +1,5 @@
+const config = require('./config');
+
 exports.handler = async (event, context) => {
     // Permitir CORS
     const headers = {
@@ -12,6 +14,11 @@ exports.handler = async (event, context) => {
     }
 
     try {
+        // Verificar que el token esté configurado
+        if (!config.shopify.accessToken || config.shopify.accessToken === 'TU_TOKEN_DE_ACCESO_AQUI') {
+            throw new Error('Token de acceso de Shopify no configurado. Actualiza config.js con el token real.');
+        }
+
         // Obtener datos del pedido
         const { productos, total, tienda } = JSON.parse(event.body);
 
@@ -36,12 +43,14 @@ exports.handler = async (event, context) => {
             }
         };
 
-        // Crear orden en Shopify
-        const response = await fetch(`https://ferroman-6810.myshopify.com/admin/api/2024-10/draft_orders.json`, {
+        // Crear orden en Shopify usando configuración
+        const shopifyUrl = `https://${config.shopify.shop}/admin/api/${config.shopify.apiVersion}/draft_orders.json`;
+
+        const response = await fetch(shopifyUrl, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'X-Shopify-Access-Token': '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'
+                'X-Shopify-Access-Token': config.shopify.accessToken
             },
             body: JSON.stringify(ordenBorrador)
         });
