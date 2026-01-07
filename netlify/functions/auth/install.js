@@ -3,33 +3,32 @@ const crypto = require('crypto');
 const config = require('../config');
 
 exports.handler = async (event) => {
-    const { shop, hmac, timestamp } = event.queryStringParameters;
+    const { shop, hmac, timestamp } = event.queryStringParameters || {};
 
-    // Verificar HMAC
-    if (!verificarHMAC(event.queryStringParameters)) {
-        return {
-            statusCode: 403,
-            body: JSON.stringify({ error: 'HMAC inválido' })
-        };
+    // Si hay HMAC, verificar (viene de Shopify)
+    if (hmac) {
+        if (!verificarHMAC(event.queryStringParameters)) {
+            return {
+                statusCode: 403,
+                body: JSON.stringify({ error: 'HMAC inválido' })
+            };
+        }
     }
 
     // Validar que shop termine en .myshopify.com
     if (!shop || !shop.endsWith('.myshopify.com')) {
         return {
             statusCode: 400,
-            body: JSON.stringify({ error: 'Shop inválido' })
+            body: JSON.stringify({ error: 'Shop inválido. Ejemplo: ferroman-6810.myshopify.com' })
         };
     }
 
     // Generar un nonce (estado aleatorio) para seguridad
     const nonce = crypto.randomBytes(16).toString('hex');
 
-    // Guardar el nonce en una cookie firmada (por ahora, lo devolvemos en el redirect)
-    // En producción, deberías usar cookies HTTP-only firmadas
-
     // Construir URL de autorización
-    const scopes = 'write_orders,read_orders'; // Los scopes que necesitas
-    const redirectUri = `${process.env.URL || 'https://tu-app.netlify.app'}/.netlify/functions/auth/callback`;
+    const scopes = 'write_orders,read_orders';
+    const redirectUri = `${process.env.URL || 'https://api-aux-ferroman.netlify.app'}/.netlify/functions/auth/callback`;
 
     const authUrl = `https://${shop}/admin/oauth/authorize?` +
         `client_id=${config.shopify.clientId}&` +
