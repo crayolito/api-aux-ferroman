@@ -4,6 +4,12 @@
 [functions]
   node_bundler = "esbuild"
 
+[[redirects]]
+  from = "/"
+  to = "/.netlify/functions/auth-install"
+  status = 302
+  force = true
+
 [[headers]]
   for = "/.netlify/functions/*"
   [headers.values]
