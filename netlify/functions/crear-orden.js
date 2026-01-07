@@ -1,5 +1,51 @@
 const config = require('./config');
 
+// Cache para el token (válido por 24 horas)
+let tokenCache = {
+    token: null,
+    expiresAt: null
+};
+
+// Función para obtener el token de acceso usando OAuth client_credentials
+async function obtenerAccessToken() {
+    // Si tenemos un token válido en cache, lo retornamos
+    if (tokenCache.token && tokenCache.expiresAt && Date.now() < tokenCache.expiresAt) {
+        return tokenCache.token;
+    }
+
+    try {
+        const oauthUrl = `https://${config.shopify.shop}/admin/oauth/access_token`;
+
+        const response = await fetch(oauthUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded'
+            },
+            body: new URLSearchParams({
+                grant_type: 'client_credentials',
+                client_id: config.shopify.clientId,
+                client_secret: config.shopify.secret
+            })
+        });
+
+        if (!response.ok) {
+            const errorData = await response.text();
+            throw new Error(`Error obteniendo token OAuth: ${response.status} - ${errorData}`);
+        }
+
+        const data = await response.json();
+
+        // Guardar token en cache (expira en 24 horas, pero guardamos con 23 horas para seguridad)
+        tokenCache.token = data.access_token;
+        tokenCache.expiresAt = Date.now() + (data.expires_in - 3600) * 1000; // Restamos 1 hora de margen
+
+        return data.access_token;
+    } catch (error) {
+        console.error('Error obteniendo access token:', error);
+        throw error;
+    }
+}
+
 exports.handler = async (event, context) => {
     // Permitir CORS
     const headers = {
@@ -14,6 +60,9 @@ exports.handler = async (event, context) => {
     }
 
     try {
+        // Obtener el token de acceso usando OAuth
+        const accessToken = await obtenerAccessToken();
+
         // Obtener datos del pedido
         const { productos, total, tienda } = JSON.parse(event.body);
 
@@ -38,17 +87,14 @@ exports.handler = async (event, context) => {
             }
         };
 
-        // Usar Client ID y Secret para autenticación básica
+        // Crear orden en Shopify usando el access token
         const shopifyUrl = `https://${config.shopify.shop}/admin/api/${config.shopify.apiVersion}/draft_orders.json`;
-
-        // Autenticación usando Client ID y Secret (Basic Auth)
-        const authString = Buffer.from(`${config.shopify.clientId}:${config.shopify.secret}`).toString('base64');
 
         const response = await fetch(shopifyUrl, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Basic ${authString}`
+                'X-Shopify-Access-Token': accessToken
             },
             body: JSON.stringify(ordenBorrador)
         });
