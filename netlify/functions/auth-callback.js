@@ -2,10 +2,18 @@ const crypto = require('crypto');
 const config = require('./config');
 
 exports.handler = async (event) => {
-    const { code, shop, hmac, state, timestamp } = event.queryStringParameters;
+    const queryParams = event.queryStringParameters || {};
+    const { code, shop, hmac, state, timestamp } = queryParams;
 
-    // 1. Verificar HMAC
-    if (!verificarHMAC(event.queryStringParameters)) {
+    // 1. Verificar HMAC (siempre requerido en callback)
+    if (!hmac || hmac.trim() === '') {
+        return {
+            statusCode: 403,
+            body: JSON.stringify({ error: 'HMAC faltante en callback' })
+        };
+    }
+
+    if (!verificarHMAC(queryParams)) {
         return {
             statusCode: 403,
             body: JSON.stringify({ error: 'HMAC inválido' })
@@ -20,8 +28,7 @@ exports.handler = async (event) => {
         };
     }
 
-    // 3. Verificar nonce (state) - deberías compararlo con la cookie
-    // Por ahora lo validamos que exista
+    // 3. Verificar nonce (state)
     if (!state) {
         return {
             statusCode: 400,
@@ -29,14 +36,16 @@ exports.handler = async (event) => {
         };
     }
 
-    // 4. Verificar timestamp (no muy viejo, ej: máximo 5 minutos)
-    const requestTime = parseInt(timestamp);
-    const currentTime = Math.floor(Date.now() / 1000);
-    if (Math.abs(currentTime - requestTime) > 300) {
-        return {
-            statusCode: 400,
-            body: JSON.stringify({ error: 'Request expirado' })
-        };
+    // 4. Verificar timestamp (no muy viejo, máximo 5 minutos)
+    if (timestamp) {
+        const requestTime = parseInt(timestamp);
+        const currentTime = Math.floor(Date.now() / 1000);
+        if (Math.abs(currentTime - requestTime) > 300) {
+            return {
+                statusCode: 400,
+                body: JSON.stringify({ error: 'Request expirado' })
+            };
+        }
     }
 
     if (!code) {
@@ -87,10 +96,7 @@ exports.handler = async (event) => {
             };
         }
 
-        // 7. Guardar el access_token
-        // ⚠️ IMPORTANTE: Para producción, guarda esto en una base de datos
-        // Por ahora, mostramos el token para que lo copies manualmente
-
+        // 7. Mostrar el token para que lo copies
         return {
             statusCode: 200,
             headers: {
@@ -149,8 +155,9 @@ exports.handler = async (event) => {
                         <p><strong>Scopes otorgados:</strong> ${scopes}</p>
                         
                         <div class="warning">
-                            <strong>⚠️ IMPORTANTE:</strong> Copia el token de acceso y guárdalo como variable de entorno en Netlify:
-                            <br><code>SHOPIFY_ACCESS_TOKEN</code>
+                            <strong>⚠️ IMPORTANTE:</strong> Copia el token de acceso y agrégalo a <code>netlify/functions/config.js</code> como:
+                            <br><code>accessToken: 'TU_TOKEN_AQUI'</code>
+                            <br><small>(Reemplaza 'TU_TOKEN_AQUI' con el token que se muestra abajo)</small>
                         </div>
                         
                         <div class="token" id="token">${accessToken}</div>
@@ -185,12 +192,23 @@ exports.handler = async (event) => {
 
 function verificarHMAC(params) {
     const { hmac, ...rest } = params;
-    if (!hmac) return false;
+
+    if (!hmac || hmac.trim() === '') {
+        return false;
+    }
+
+    // Filtrar parámetros vacíos
+    const filteredParams = Object.keys(rest)
+        .filter(key => rest[key] !== undefined && rest[key] !== null && rest[key] !== '')
+        .reduce((obj, key) => {
+            obj[key] = rest[key];
+            return obj;
+        }, {});
 
     // Ordenar parámetros alfabéticamente
-    const sorted = Object.keys(rest)
+    const sorted = Object.keys(filteredParams)
         .sort()
-        .map(key => `${key}=${rest[key]}`)
+        .map(key => `${key}=${filteredParams[key]}`)
         .join('&');
 
     // Calcular HMAC
@@ -200,8 +218,13 @@ function verificarHMAC(params) {
         .digest('hex');
 
     // Comparación segura
-    return crypto.timingSafeEqual(
-        Buffer.from(calculated),
-        Buffer.from(hmac)
-    );
+    try {
+        return crypto.timingSafeEqual(
+            Buffer.from(calculated, 'hex'),
+            Buffer.from(hmac, 'hex')
+        );
+    } catch (error) {
+        console.error('Error comparando HMAC:', error);
+        return false;
+    }
 }
