@@ -24,10 +24,8 @@ exports.handler = async (event, context) => {
         const clientSecret = process.env.SHOPIFY_CLIENT_SECRET || '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';
 
         const datos = JSON.parse(event.body);
-        console.log('Datos recibidos:', datos);
 
-        // 1. Obtener token usando client credentials
-        console.log('Obteniendo token...');
+        // 1. Obtener token
         const tokenResponse = await fetch(`https://${shop}/admin/oauth/access_token`, {
             method: 'POST',
             headers: {
@@ -41,27 +39,8 @@ exports.handler = async (event, context) => {
             })
         });
 
-        console.log('Token response status:', tokenResponse.status);
-        const tokenText = await tokenResponse.text();
-        console.log('Token response:', tokenText);
-
-        if (!tokenResponse.ok) {
-            throw new Error(`Error obteniendo token: ${tokenResponse.status} - ${tokenText}`);
-        }
-
-        let tokenData;
-        try {
-            tokenData = JSON.parse(tokenText);
-        } catch (e) {
-            throw new Error(`Respuesta no es JSON válido: ${tokenText}`);
-        }
-
+        const tokenData = await tokenResponse.json();
         const access_token = tokenData.access_token;
-        if (!access_token) {
-            throw new Error(`No se recibió access_token: ${JSON.stringify(tokenData)}`);
-        }
-
-        console.log('Token obtenido exitosamente');
 
         // 2. Preparar productos
         const productos = datos.productos || datos.items || [];
@@ -71,8 +50,8 @@ exports.handler = async (event, context) => {
             originalUnitPrice: parseFloat((p.price || '0').toString().replace(/[^\d.-]/g, '')) || 0
         }));
 
-        // 3. Crear orden con GraphQL
-        const mutation = `
+        // 3. Crear Draft Order
+        const createMutation = `
         mutation draftOrderCreate($input: DraftOrderInput!) {
           draftOrderCreate(input: $input) {
             draftOrder {
@@ -88,7 +67,7 @@ exports.handler = async (event, context) => {
         }
       `;
 
-        const variables = {
+        const createVariables = {
             input: {
                 lineItems: lineItems,
                 email: datos.cliente?.email || '',
@@ -96,42 +75,84 @@ exports.handler = async (event, context) => {
             }
         };
 
-        console.log('Creando orden en Shopify...');
-        const shopifyResponse = await fetch(`https://${shop}/admin/api/2026-01/graphql.json`, {
+        const createResponse = await fetch(`https://${shop}/admin/api/2026-01/graphql.json`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
                 'X-Shopify-Access-Token': access_token
             },
-            body: JSON.stringify({ query: mutation, variables })
+            body: JSON.stringify({ query: createMutation, variables: createVariables })
         });
 
-        if (!shopifyResponse.ok) {
-            const errorText = await shopifyResponse.text();
-            throw new Error(`Error en Shopify: ${shopifyResponse.status} - ${errorText}`);
+        const createResult = await createResponse.json();
+
+        if (createResult.errors || createResult.data.draftOrderCreate.userErrors.length > 0) {
+            throw new Error('Error creando draft order');
         }
 
-        const result = await shopifyResponse.json();
-        console.log('Respuesta de Shopify:', result);
+        const draftOrderId = createResult.data.draftOrderCreate.draftOrder.id;
 
-        if (result.errors) {
-            throw new Error(`GraphQL errors: ${JSON.stringify(result.errors)}`);
+        // 4. COMPLETAR el Draft Order para convertirlo en Order real
+        const completeMutation = `
+        mutation draftOrderComplete($id: ID!) {
+          draftOrderComplete(id: $id) {
+            draftOrder {
+              order {
+                id
+                name
+                totalPrice
+              }
+            }
+            userErrors {
+              field
+              message
+            }
+          }
+        }
+      `;
+
+        const completeResponse = await fetch(`https://${shop}/admin/api/2026-01/graphql.json`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Shopify-Access-Token': access_token
+            },
+            body: JSON.stringify({
+                query: completeMutation,
+                variables: { id: draftOrderId }
+            })
+        });
+
+        const completeResult = await completeResponse.json();
+        console.log('Complete result:', completeResult);
+
+        if (completeResult.errors || completeResult.data.draftOrderComplete.userErrors.length > 0) {
+            // Si no se puede completar, devolver el draft order
+            return {
+                statusCode: 200,
+                headers,
+                body: JSON.stringify({
+                    success: true,
+                    numeroOrden: createResult.data.draftOrderCreate.draftOrder.name,
+                    orderId: draftOrderId,
+                    total: createResult.data.draftOrderCreate.draftOrder.totalPrice,
+                    tipo: 'draft' // Indicar que quedó como draft
+                })
+            };
         }
 
-        if (result.data.draftOrderCreate.userErrors.length > 0) {
-            throw new Error(`Errores: ${JSON.stringify(result.data.draftOrderCreate.userErrors)}`);
-        }
-
-        const draftOrder = result.data.draftOrderCreate.draftOrder;
+        // Orden real creada exitosamente
+        const order = completeResult.data.draftOrderComplete.draftOrder.order;
 
         return {
             statusCode: 200,
             headers,
             body: JSON.stringify({
                 success: true,
-                numeroOrden: draftOrder.name,
-                orderId: draftOrder.id,
-                total: draftOrder.totalPrice
+                numeroOrden: order.name,
+                orderId: order.id,
+                total: order.totalPrice,
+                tipo: 'order' // Orden real
             })
         };
 
