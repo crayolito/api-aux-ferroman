@@ -1,18 +1,12 @@
+Netlify · TOML
+Copiar
+
 [build]
   functions = "netlify/functions"
 
-[functions]
-  node_bundler = "esbuild"
-
-[[redirects]]
-  from = "/"
-  to = "/.netlify/functions/auth-install"
-  status = 302
-  force = true
-
 [[headers]]
-  for = "/.netlify/functions/*"
+  for = "/api/*"
   [headers.values]
     Access-Control-Allow-Origin = "*"
-    Access-Control-Allow-Headers = "Content-Type"
     Access-Control-Allow-Methods = "POST, OPTIONS"
+    Access-Control-Allow-Headers = "Content-Type"
